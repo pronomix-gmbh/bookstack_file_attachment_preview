@@ -1,0 +1,13 @@
+{
+  "name": "file-attachment-preview",
+  "version": "1.0.0",
+  "private": true,
+  "description": "BookStack theme custom-head attachment previews (pdf/docx/xlsx).",
+  "scripts": {
+    "build": "node scripts/build.js",
+    "install-assets": "npm install && npm run build && node scripts/install-assets.js"
+  },
+  "devDependencies": {
+    "esbuild": "0.20.2"
+  }
+}
