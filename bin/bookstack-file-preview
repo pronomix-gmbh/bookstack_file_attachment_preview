@@ -1,0 +1,159 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+const PACKAGE_NAME = 'pronomix-gmbh/bookstack-file-attachment-preview';
+const RELEASE_ASSET = 'https://github.com/pronomix-gmbh/bookstack_file_attachment_preview/releases/download/v%s/file-attachment-preview.zip';
+
+function usage(): void
+{
+    fwrite(STDOUT, <<<TEXT
+Install the BookStack File Attachment Preview module.
+
+Usage:
+  vendor/bin/bookstack-file-preview install [--bookstack=PATH] [--zip=PATH | --url=URL]
+
+Options:
+  --bookstack=PATH  BookStack application directory (defaults to the current directory)
+  --zip=PATH        Install a local module ZIP, for example a CI build artifact
+  --url=URL         Install a module ZIP from an HTTP(S) URL
+  --help            Show this help
+
+Without --zip or --url, the installer uses the GitHub release matching the installed
+Composer package version.
+TEXT);
+    fwrite(STDOUT, "\n");
+}
+
+function fail(string $message, int $code = 1): never
+{
+    fwrite(STDERR, "Error: {$message}\n");
+    exit($code);
+}
+
+function parseArguments(array $arguments): array
+{
+    if (count($arguments) === 1 && in_array($arguments[0], ['--help', '-h'], true)) {
+        usage();
+        exit(0);
+    }
+
+    if (($arguments[0] ?? null) !== 'install') {
+        usage();
+        fail('Expected the install command.', 2);
+    }
+
+    $options = [
+        'bookstack' => getcwd(),
+        'zip' => null,
+        'url' => null,
+    ];
+
+    for ($index = 1; $index < count($arguments); $index++) {
+        $argument = $arguments[$index];
+        if ($argument === '--help' || $argument === '-h') {
+            usage();
+            exit(0);
+        }
+
+        if (!preg_match('/^--(bookstack|zip|url)(?:=(.*))?$/', $argument, $matches)) {
+            fail("Unknown option: {$argument}", 2);
+        }
+
+        $key = $matches[1];
+        $value = ($matches[2] ?? '') !== '' ? $matches[2] : null;
+        if ($value === null) {
+            $index++;
+            $value = $arguments[$index] ?? null;
+        }
+        if (!is_string($value) || $value === '' || str_starts_with($value, '--')) {
+            fail("Option --{$key} requires a value.", 2);
+        }
+        $options[$key] = $value;
+    }
+
+    if ($options['zip'] !== null && $options['url'] !== null) {
+        fail('Use either --zip or --url, not both.', 2);
+    }
+
+    return $options;
+}
+
+function packageReleaseUrl(): string
+{
+    $autoloadPath = $GLOBALS['_composer_autoload_path'] ?? getcwd() . '/vendor/autoload.php';
+    if (!is_file($autoloadPath)) {
+        fail('Could not locate the Composer autoloader. Run this command from the BookStack directory.');
+    }
+    require_once $autoloadPath;
+
+    if (!class_exists(Composer\InstalledVersions::class)) {
+        fail('Composer runtime metadata is unavailable. Update Composer to version 2.2.2 or newer.');
+    }
+
+    $version = Composer\InstalledVersions::getPrettyVersion(PACKAGE_NAME);
+    if (!is_string($version) || !preg_match('/^v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/', $version, $matches)) {
+        fail('The installed package version has no matching release asset. Use --zip or --url for development versions.');
+    }
+
+    return sprintf(RELEASE_ASSET, $matches[1]);
+}
+
+function runCommand(array $command, string $workingDirectory, bool $captureOutput = false): array
+{
+    $descriptors = $captureOutput
+        ? [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']]
+        : [0 => STDIN, 1 => STDOUT, 2 => STDERR];
+    $process = proc_open($command, $descriptors, $pipes, $workingDirectory);
+    if (!is_resource($process)) {
+        fail('Could not start the BookStack Artisan command.');
+    }
+
+    $output = '';
+    if ($captureOutput) {
+        fclose($pipes[0]);
+        $stdout = stream_get_contents($pipes[1]);
+        $stderr = stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        $output = ($stdout === false ? '' : $stdout) . ($stderr === false ? '' : $stderr);
+    }
+
+    $exitCode = proc_close($process);
+    return [$exitCode, $output];
+}
+
+$options = parseArguments(array_slice($argv, 1));
+$bookstackPath = realpath((string) $options['bookstack']);
+if ($bookstackPath === false || !is_file($bookstackPath . '/artisan')) {
+    fail('BookStack was not found. Point --bookstack to the directory containing artisan.');
+}
+
+$moduleLocation = null;
+if ($options['zip'] !== null) {
+    $moduleLocation = realpath($options['zip']);
+    if ($moduleLocation === false || !is_file($moduleLocation)) {
+        fail('The module ZIP file does not exist.');
+    }
+} elseif ($options['url'] !== null) {
+    if (filter_var($options['url'], FILTER_VALIDATE_URL) === false || !preg_match('/^https?:\/\//i', $options['url'])) {
+        fail('--url must be a valid HTTP or HTTPS URL.');
+    }
+    $moduleLocation = $options['url'];
+} else {
+    $moduleLocation = packageReleaseUrl();
+}
+
+[$listExitCode, $artisanCommands] = runCommand([PHP_BINARY, 'artisan', 'list', '--raw'], $bookstackPath, true);
+if ($listExitCode !== 0 || !preg_match('/^bookstack:install-module(?:\s|$)/m', $artisanCommands)) {
+    fail('This BookStack installation does not provide bookstack:install-module. Theme modules require BookStack 26.03 or newer.');
+}
+
+[$installExitCode] = runCommand([
+    PHP_BINARY,
+    'artisan',
+    'bookstack:install-module',
+    $moduleLocation,
+], $bookstackPath);
+exit($installExitCode);

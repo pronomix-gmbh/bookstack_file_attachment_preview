@@ -32,6 +32,26 @@ Adds responsive inline previews for file attachments on BookStack pages. It supp
    The module includes all browser assets and injects them through the module view system. No runtime CDN access is needed.
 4. On older BookStack versions, copy `dist/public` into your theme's public folder, for example `themes/file-preview/public`. Copy `dist/layouts/parts/custom-head.blade.php` to `themes/file-preview/layouts/parts/custom-head.blade.php`; for releases using a `views` subdirectory, use the generated copy at `dist/views/layouts/parts/custom-head.blade.php`. Clear the view cache if needed with `php artisan view:clear`.
 
+## Install with Composer
+
+For BookStack 26.03 and newer, the package can be installed through Packagist and then handed to BookStack's own module installer:
+
+```sh
+composer require pronomix-gmbh/bookstack-file-attachment-preview
+vendor/bin/bookstack-file-preview install
+```
+
+Run the command from the BookStack application directory. The installer selects the GitHub release asset matching the installed Composer package version and invokes `php artisan bookstack:install-module`. BookStack handles the module placement and any confirmation needed to replace an existing module. Composer itself does not automatically run scripts declared by dependency packages, so the explicit install command is required after `composer require`.
+
+The BookStack path and module source can be overridden when needed:
+
+```sh
+vendor/bin/bookstack-file-preview install --bookstack=/srv/bookstack --zip=/tmp/file-attachment-preview.zip
+vendor/bin/bookstack-file-preview install --bookstack=/srv/bookstack --url=https://example.com/file-attachment-preview.zip
+```
+
+The Packagist listing must be registered once at <https://packagist.org/packages/submit> using this repository URL: <https://github.com/pronomix-gmbh/bookstack_file_attachment_preview>. The GitHub Actions tag workflow publishes the matching module ZIP as a GitHub release asset, which the Composer installer uses.
+
 The classic theme view override is an advanced customization point. BookStack documents these overrides as unstable, so the CI browser test tracks the current release and helps catch changes.
 
 ## Development and tests
@@ -81,6 +101,7 @@ GitHub Actions runs the unit tests and the same browser integration test against
 - `scripts/build.js`: builds the core and lazy-loaded DOCX, XLSX, TIFF, and HEIC assets into `dist/public`.
 - `module/`: BookStack theme module entry point and current-version head view.
 - `scripts/package-module.js`: creates `dist/file-attachment-preview.zip` for the BookStack module installer.
+- `bin/bookstack-file-preview`: Composer binary that calls BookStack's native module installer.
 - `scripts/install-assets.js`: copies the custom head template to both supported theme view paths.
 - `tests/attachment-preview.test.js`: DOM-level behavior tests.
 - `scripts/bookstack-e2e.js`: local BookStack fixture creation and Playwright checks.

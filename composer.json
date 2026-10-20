@@ -1,0 +1,23 @@
+{
+  "name": "pronomix-gmbh/bookstack-file-attachment-preview",
+  "description": "Local previews for BookStack file attachments, installed through BookStack's theme module system.",
+  "type": "library",
+  "license": "MIT",
+  "keywords": [
+    "bookstack",
+    "bookstack-module",
+    "attachment-preview",
+    "heic"
+  ],
+  "require": {
+    "php": ">=8.2",
+    "composer-runtime-api": "^2.2.2"
+  },
+  "bin": [
+    "bin/bookstack-file-preview"
+  ],
+  "support": {
+    "issues": "https://github.com/pronomix-gmbh/bookstack_file_attachment_preview/issues",
+    "source": "https://github.com/pronomix-gmbh/bookstack_file_attachment_preview"
+  }
+}

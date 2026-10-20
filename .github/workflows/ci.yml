@@ -29,6 +29,16 @@ jobs:
       - name: Run unit tests
         run: npm test
 
+      - name: Validate Composer package
+        run: |
+          php -l bin/bookstack-file-preview
+          composer validate --no-check-publish
+
+      - name: Verify tag matches package version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          node -e "if (process.env.GITHUB_REF_NAME !== 'v' + require('./package.json').version) process.exit(1)"
+
       - name: Install Chromium for Playwright
         run: npx playwright install --with-deps chromium
 
@@ -47,3 +57,31 @@ jobs:
       - name: Stop the disposable BookStack test stack
         if: always()
         run: docker compose -f docker-compose.test.yml down --volumes
+
+  release:
+    name: Publish Composer install asset
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Download tested BookStack module
+        uses: actions/download-artifact@v7
+        with:
+          name: file-attachment-preview-bookstack-module
+          path: dist
+
+      - name: Publish the module ZIP as a GitHub release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/file-attachment-preview.zip --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/file-attachment-preview.zip \
+              --title "File Attachment Preview $GITHUB_REF_NAME" --generate-notes
+          fi
