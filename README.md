@@ -71,7 +71,7 @@ npx playwright install chromium
 npm run test:bookstack
 ```
 
-This starts a disposable BookStack and MariaDB stack using the latest BookStack image, installs the generated ZIP with BookStack's module installer, creates a test book and attachments through BookStack's API, and checks the plugin in Chromium. It leaves the stack running at <http://localhost:6875> for manual review. The test admin login is `admin@admin.com` / `password`.
+This starts a disposable BookStack and MariaDB stack using the latest BookStack image, installs the Composer package in a temporary Composer project, runs its installer against BookStack, creates a test book and attachments through BookStack's API, and checks the plugin in Chromium. The browser checks cover PDF, DOCX, XLSX, PNG, HEIC, TIFF, and fallback behavior, including CSP, theme modes, and mobile layout. It leaves the stack running at <http://localhost:6875> for manual review. The test admin login is `admin@admin.com` / `password`.
 
 Stop the stack while keeping its local data:
 

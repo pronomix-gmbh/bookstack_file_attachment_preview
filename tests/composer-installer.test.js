@@ -7,6 +7,8 @@ const test = require('node:test');
 
 const projectRoot = path.resolve(__dirname, '..');
 const installer = path.join(projectRoot, 'bin', 'bookstack-file-preview');
+const packageJson = require(path.join(projectRoot, 'package.json'));
+const composerJson = require(path.join(projectRoot, 'composer.json'));
 const php = process.env.PHP_BINARY || 'php';
 
 const createBookStackFixture = (t, {supportsModules = true, installedVersion = null} = {}) => {
@@ -56,14 +58,14 @@ test('forwards a local module ZIP to the native BookStack module installer', (t)
 });
 
 test('uses the matching versioned GitHub release asset by default', (t) => {
-  const root = createBookStackFixture(t, {installedVersion: 'v1.3.0'});
+  const root = createBookStackFixture(t, {installedVersion: `v${packageJson.version}`});
 
   const result = runInstaller(['install'], root);
 
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root, 'install-arguments.json'), 'utf8')), [
     'bookstack:install-module',
-    'https://github.com/pronomix-gmbh/bookstack_file_attachment_preview/releases/download/v1.3.0/file-attachment-preview.zip',
+    `https://github.com/pronomix-gmbh/bookstack_file_attachment_preview/releases/download/v${packageJson.version}/file-attachment-preview.zip`,
   ]);
 });
 
@@ -99,10 +101,10 @@ test('works as a Composer-installed vendor binary', (t) => {
       url: projectRoot,
       options: {
         symlink: true,
-        versions: {'pronomix-gmbh/bookstack-file-attachment-preview': '1.3.0'},
+        versions: {[composerJson.name]: packageJson.version},
       },
     }],
-    require: {'pronomix-gmbh/bookstack-file-attachment-preview': '1.3.0'},
+    require: {[composerJson.name]: packageJson.version},
   }, null, 2));
 
   const install = spawnSync('composer', [
@@ -122,6 +124,6 @@ test('works as a Composer-installed vendor binary', (t) => {
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root, 'install-arguments.json'), 'utf8')), [
     'bookstack:install-module',
-    'https://github.com/pronomix-gmbh/bookstack_file_attachment_preview/releases/download/v1.3.0/file-attachment-preview.zip',
+    `https://github.com/pronomix-gmbh/bookstack_file_attachment_preview/releases/download/v${packageJson.version}/file-attachment-preview.zip`,
   ]);
 });

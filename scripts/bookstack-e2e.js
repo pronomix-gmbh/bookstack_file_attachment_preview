@@ -1,11 +1,14 @@
 const {execFileSync} = require('node:child_process');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const {Document, Paragraph, TextRun, Packer} = require('docx');
 const {chromium} = require('playwright');
 const XLSX = require('xlsx');
 
 const projectRoot = path.resolve(__dirname, '..');
+const npmPackage = require(path.join(projectRoot, 'package.json'));
+const composerPackage = require(path.join(projectRoot, 'composer.json'));
 const composeFile = path.join(projectRoot, 'docker-compose.test.yml');
 const moduleZip = path.join(projectRoot, 'dist', 'file-attachment-preview.zip');
 const baseUrl = process.env.BOOKSTACK_URL || `http://localhost:${process.env.BOOKSTACK_PORT || '6875'}`;
@@ -101,14 +104,16 @@ echo 'PREVIEW_TOKEN_READY';`;
   run('docker', ['compose', '-f', composeFile, 'exec', '-T', 'bookstack', 'php', '/app/www/artisan', 'tinker', `--execute=${php}`]);
 };
 
-const installThemeModule = () => {
+const installComposerPackage = () => {
   const containerId = execFileSync('docker', ['compose', '-f', composeFile, 'ps', '-q', 'bookstack'], {
     cwd: projectRoot,
     encoding: 'utf8',
   }).trim();
-  if (!containerId) throw new Error('Could not find the local BookStack container to install the theme module');
+  if (!containerId) throw new Error('Could not find the local BookStack container for the Composer installation test');
 
   run('docker', ['exec', containerId, 'sh', '-lc', [
+    'rm -rf /tmp/bookstack-preview-composer /tmp/bookstack-preview-package /tmp/file-attachment-preview.zip',
+    'mkdir -p /tmp/bookstack-preview-composer /tmp/bookstack-preview-package/bin',
     'mkdir -p /config/www/themes/file-preview/modules',
     'rm -rf /config/www/themes/file-preview/modules/file-attachment-preview',
     'rm -rf /config/www/themes/file-preview/public',
@@ -116,10 +121,39 @@ const installThemeModule = () => {
     'rm -f /config/www/themes/file-preview/views/layouts/parts/custom-head.blade.php',
   ].join(' && ')]);
   run('docker', ['cp', moduleZip, `${containerId}:/tmp/file-attachment-preview.zip`]);
-  run('docker', ['compose', '-f', composeFile, 'exec', '-T', 'bookstack', 'php', '/app/www/artisan', 'bookstack:install-module', '/tmp/file-attachment-preview.zip'], {
-    input: 'yes\n',
-    stdio: ['pipe', 'inherit', 'inherit'],
-  });
+
+  const packageDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'bookstack-preview-composer-'));
+  const testManifest = path.join(packageDirectory, 'composer.json');
+  fs.writeFileSync(testManifest, JSON.stringify({
+    name: 'bookstack/attachment-preview-e2e',
+    version: '1.0.0',
+    repositories: [{
+      type: 'path',
+      url: '/tmp/bookstack-preview-package',
+      options: {
+        symlink: true,
+        versions: {[composerPackage.name]: npmPackage.version},
+      },
+    }],
+    require: {[composerPackage.name]: npmPackage.version},
+  }, null, 2));
+
+  try {
+    run('docker', ['cp', path.join(projectRoot, 'composer.json'), `${containerId}:/tmp/bookstack-preview-package/composer.json`]);
+    run('docker', ['cp', path.join(projectRoot, 'bin', 'bookstack-file-preview'), `${containerId}:/tmp/bookstack-preview-package/bin/bookstack-file-preview`]);
+    run('docker', ['cp', testManifest, `${containerId}:/tmp/bookstack-preview-composer/composer.json`]);
+    run('docker', ['exec', containerId, 'composer', 'install', '--no-interaction', '--no-progress', '--working-dir=/tmp/bookstack-preview-composer']);
+    run('docker', ['exec', '-i', containerId, 'sh', '-lc', [
+      'cd /tmp/bookstack-preview-composer',
+      './vendor/bin/bookstack-file-preview install --bookstack=/app/www --zip=/tmp/file-attachment-preview.zip',
+    ].join(' && ')], {
+      input: 'yes\n',
+      stdio: ['pipe', 'inherit', 'inherit'],
+    });
+  } finally {
+    fs.rmSync(packageDirectory, {recursive: true, force: true});
+    run('docker', ['exec', containerId, 'rm', '-rf', '/tmp/bookstack-preview-composer', '/tmp/bookstack-preview-package', '/tmp/file-attachment-preview.zip']);
+  }
 };
 
 const apiRequest = async (endpoint, options = {}) => {
@@ -382,7 +416,7 @@ const assertBrowserPreviews = async (testBook) => {
 const main = async () => {
   run('docker', ['compose', '-f', composeFile, 'up', '-d', '--wait', '--wait-timeout', '300']);
   await waitForBookStack();
-  installThemeModule();
+  installComposerPackage();
   provisionApiToken();
   const testBook = await createTestBook();
   console.log(`Created BookStack test book: ${testBook.book.name}`);
