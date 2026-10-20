@@ -1,0 +1,47 @@
+services:
+  db:
+    image: mariadb:11
+    environment:
+      MARIADB_DATABASE: bookstackapp
+      MARIADB_USER: bookstack
+      MARIADB_PASSWORD: preview-test-password
+      MARIADB_ROOT_PASSWORD: preview-root-password
+    volumes:
+      - bookstack-db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  bookstack:
+    image: ${BOOKSTACK_IMAGE:-lscr.io/linuxserver/bookstack:latest}
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-Europe/Berlin}
+      APP_URL: http://localhost:${BOOKSTACK_PORT:-6875}
+      APP_KEY: "base64:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+      APP_THEME: file-preview
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_USERNAME: bookstack
+      DB_PASSWORD: preview-test-password
+      DB_DATABASE: bookstackapp
+    ports:
+      - "${BOOKSTACK_PORT:-6875}:80"
+    volumes:
+      - bookstack-config:/config
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost/login >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
+
+volumes:
+  bookstack-config:
+  bookstack-db:

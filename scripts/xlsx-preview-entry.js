@@ -1,0 +1,1 @@
+window.AttachmentPreviewXLSX = require('xlsx');

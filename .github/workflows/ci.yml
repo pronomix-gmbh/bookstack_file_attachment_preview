@@ -1,0 +1,49 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Unit and BookStack browser tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Build and test against the latest BookStack release
+        env:
+          BOOKSTACK_IMAGE: lscr.io/linuxserver/bookstack:latest
+        run: npm run test:bookstack
+
+      - name: Upload BookStack theme module
+        uses: actions/upload-artifact@v7
+        with:
+          name: file-attachment-preview-bookstack-module
+          path: dist/file-attachment-preview.zip
+          if-no-files-found: error
+
+      - name: Stop the disposable BookStack test stack
+        if: always()
+        run: docker compose -f docker-compose.test.yml down --volumes
