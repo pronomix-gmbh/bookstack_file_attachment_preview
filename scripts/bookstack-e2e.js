@@ -1,4 +1,5 @@
 const {execFileSync} = require('node:child_process');
+const fs = require('node:fs');
 const path = require('node:path');
 const {Document, Paragraph, TextRun, Packer} = require('docx');
 const {chromium} = require('playwright');
@@ -166,6 +167,8 @@ const createTestBook = async () => {
     }))],
     ['Preview.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', makeXlsx()],
     ['Preview.png', 'image/png', makePng()],
+    ['Preview.heic', 'image/heic', fs.readFileSync(path.join(projectRoot, 'tests', 'fixtures', 'preview.heic'))],
+    ['Preview.tiff', 'image/tiff', fs.readFileSync(path.join(projectRoot, 'tests', 'fixtures', 'preview.tiff'))],
     ['Preview.txt', 'text/plain', Buffer.from('Fallback preview test file.', 'utf8')],
   ];
 
@@ -209,7 +212,7 @@ const assertBrowserPreviews = async (testBook) => {
   const bundleMimeTypes = new Map();
   const browserErrors = [];
   page.on('request', (request) => {
-    if (/\/(?:attachment-preview|docx-preview|xlsx-preview)\.min\.js(?:\?|$)/.test(request.url())) {
+    if (/\/(?:attachment-preview|docx-preview|xlsx-preview|tiff-preview|heic-preview(?:-worker)?)\.min\.js(?:\?|$)/.test(request.url())) {
       previewRequests.push(request.url());
     }
   });
@@ -219,7 +222,7 @@ const assertBrowserPreviews = async (testBook) => {
   page.on('pageerror', (error) => browserErrors.push(`page: ${error.message}`));
   page.on('requestfailed', (request) => browserErrors.push(`request: ${request.url()} (${request.failure()?.errorText || 'failed'})`));
   page.on('response', (response) => {
-    const bundle = response.url().match(/\/(docx-preview|xlsx-preview)\.min\.js(?:\?|$)/);
+    const bundle = response.url().match(/\/(docx-preview|xlsx-preview|tiff-preview|heic-preview(?:-worker)?)\.min\.js(?:\?|$)/);
     if (bundle) bundleMimeTypes.set(bundle[1], response.headers()['content-type'] || '');
     if (response.status() >= 400) browserErrors.push(`response: ${response.status()} ${response.url()}`);
   });
@@ -238,8 +241,8 @@ const assertBrowserPreviews = async (testBook) => {
     }
 
     const cards = page.locator('.attachment-preview');
-    if (await cards.count() !== 5) {
-      throw new Error(`Expected five attachment previews, found ${await cards.count()}. Check that BookStack loaded the theme override.`);
+    if (await cards.count() !== 7) {
+      throw new Error(`Expected seven attachment previews, found ${await cards.count()}. Check that BookStack loaded the theme override.`);
     }
     const actionTextDecoration = await cards.first().locator('.attachment-preview__action').first().evaluate((link) => getComputedStyle(link).textDecorationLine);
     if (actionTextDecoration !== 'none') {
@@ -251,7 +254,7 @@ const assertBrowserPreviews = async (testBook) => {
     if (darkSurface !== 'rgb(23, 32, 51)') {
       throw new Error(`The preview cards should follow BookStack dark mode, got background ${darkSurface}`);
     }
-    for (const filename of ['Preview.pdf', 'Preview.docx', 'Preview.xlsx', 'Preview.png', 'Preview.txt']) {
+    for (const filename of ['Preview.pdf', 'Preview.docx', 'Preview.xlsx', 'Preview.png', 'Preview.heic', 'Preview.tiff', 'Preview.txt']) {
       if (await page.getByRole('link', {name: filename}).count() === 0) {
         throw new Error(`The attachment preview page is missing ${filename}`);
       }
@@ -282,6 +285,49 @@ const assertBrowserPreviews = async (testBook) => {
       return image && image.complete && image.naturalWidth === 2;
     }, null, {timeout: 30_000});
 
+    const heicCard = cards.filter({hasText: 'Preview.heic'});
+    await heicCard.locator('.attachment-preview__body').scrollIntoViewIfNeeded();
+    try {
+      await page.waitForFunction(() => {
+        const card = [...document.querySelectorAll('.attachment-preview')].find((item) => item.textContent.includes('Preview.heic'));
+        const image = card && card.querySelector('.attachment-preview__image');
+        return image && image.complete && image.naturalWidth === 64;
+      }, null, {timeout: 30_000});
+    } catch (error) {
+      console.error(`HEIC preview diagnostics: ${JSON.stringify(await heicCard.evaluate((card) => ({
+        text: card.textContent,
+        image: card.querySelector('.attachment-preview__image') && {
+          src: card.querySelector('.attachment-preview__image').src,
+          complete: card.querySelector('.attachment-preview__image').complete,
+          width: card.querySelector('.attachment-preview__image').naturalWidth,
+        },
+      })))}`);
+      throw error;
+    }
+    const heicColors = await heicCard.locator('.attachment-preview__image').evaluate((image) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      const context = canvas.getContext('2d');
+      context.drawImage(image, 0, 0);
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+      return {
+        top: [...pixels.slice(0, 3)],
+        bottom: [...pixels.slice((canvas.height - 1) * canvas.width * 4, (canvas.height - 1) * canvas.width * 4 + 3)],
+      };
+    });
+    if (heicColors.top.reduce((total, value, index) => total + Math.abs(value - heicColors.bottom[index]), 0) < 100) {
+      throw new Error(`The HEIC pixels were not decoded correctly: ${JSON.stringify(heicColors)}`);
+    }
+
+    const tiffCard = cards.filter({hasText: 'Preview.tiff'});
+    await tiffCard.locator('.attachment-preview__body').scrollIntoViewIfNeeded();
+    await page.waitForFunction(() => {
+      const card = [...document.querySelectorAll('.attachment-preview')].find((item) => item.textContent.includes('Preview.tiff'));
+      const image = card && card.querySelector('.attachment-preview__image');
+      return image && image.complete && image.naturalWidth === 2;
+    }, null, {timeout: 60_000});
+
     const fallbackCard = cards.filter({hasText: 'Preview.txt'});
     if (!(await fallbackCard.locator('.attachment-preview__message--fallback').textContent()).includes('keine Vorschau verfügbar')) {
       throw new Error('Unsupported files should show an actionable fallback message');
@@ -299,7 +345,12 @@ const assertBrowserPreviews = async (testBook) => {
     if (nonLocalRequests.length) throw new Error(`Preview scripts loaded outside the BookStack host: ${nonLocalRequests.join(', ')}`);
     if (!previewRequests.some((requestUrl) => requestUrl.includes('docx-preview.min.js'))) throw new Error('The local DOCX bundle was not loaded');
     if (!previewRequests.some((requestUrl) => requestUrl.includes('xlsx-preview.min.js'))) throw new Error('The local XLSX bundle was not loaded');
-    for (const name of ['docx-preview', 'xlsx-preview']) {
+    if (!previewRequests.some((requestUrl) => requestUrl.includes('tiff-preview.min.js'))) throw new Error('The local TIFF bundle was not loaded');
+    if (!previewRequests.some((requestUrl) => requestUrl.includes('heic-preview.min.js'))) throw new Error('The local HEIC bundle was not loaded');
+    if (!previewRequests.some((requestUrl) => requestUrl.includes('heic-preview-worker.min.js'))) throw new Error('The local HEIC worker was not loaded');
+    const cspErrors = browserErrors.filter((error) => /content security policy|unsafe-eval|wasm/i.test(error));
+    if (cspErrors.length) throw new Error(`The image preview triggered a content security policy error: ${cspErrors.join('; ')}`);
+    for (const name of ['docx-preview', 'xlsx-preview', 'tiff-preview', 'heic-preview', 'heic-preview-worker']) {
       if (!bundleMimeTypes.get(name)?.startsWith('text/javascript')) {
         throw new Error(`${name} was served with an unsafe or unsupported MIME type: ${bundleMimeTypes.get(name) || 'missing response'}`);
       }

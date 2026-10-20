@@ -20,6 +20,11 @@ fs.writeFileSync(path.join(moduleRoot, 'bookstack-module.json'), `${JSON.stringi
 fs.copyFileSync(path.join(projectRoot, 'module', 'functions.php'), path.join(moduleRoot, 'functions.php'));
 fs.cpSync(path.join(projectRoot, 'module', 'views'), path.join(moduleRoot, 'views'), {recursive: true});
 fs.cpSync(path.join(distDir, 'public'), path.join(moduleRoot, 'public'), {recursive: true});
+fs.copyFileSync(path.join(projectRoot, 'THIRD-PARTY-NOTICES.md'), path.join(moduleRoot, 'THIRD-PARTY-NOTICES.md'));
+const licensesDir = path.join(moduleRoot, 'licenses');
+fs.mkdirSync(licensesDir, {recursive: true});
+fs.copyFileSync(path.join(projectRoot, 'node_modules', '@stacksjs', 'ts-heic', 'LICENSE.md'), path.join(licensesDir, 'ts-heic-LICENSE.md'));
+fs.copyFileSync(path.join(projectRoot, 'node_modules', 'utif2', 'LICENSE'), path.join(licensesDir, 'utif2-LICENSE'));
 fs.rmSync(archivePath, {force: true});
 
 const zipFile = new yazl.ZipFile();

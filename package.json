@@ -1,21 +1,23 @@
 {
   "name": "file-attachment-preview",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
-  "description": "BookStack theme custom-head attachment previews (pdf/docx/xlsx).",
+  "description": "BookStack attachment previews for documents, spreadsheets, images, audio, and video.",
   "scripts": {
     "build": "node scripts/build.js",
     "test": "node --test",
     "package:module": "npm run build && node scripts/package-module.js",
     "test:bookstack": "npm run build && node scripts/install-assets.js && node scripts/package-module.js && node scripts/bookstack-e2e.js",
-    "install-assets": "npm ci && npm run build && node scripts/install-assets.js && node scripts/package-module.js"
+    "install-assets": "npm ci --ignore-scripts && npm run build && node scripts/install-assets.js && node scripts/package-module.js"
   },
   "devDependencies": {
+    "@stacksjs/ts-heic": "0.0.2",
     "docx": "^9.13.0",
     "docx-preview": "^0.4.1",
     "esbuild": "^0.28.2",
     "jsdom": "^30.1.3",
     "playwright": "^1.64.1",
+    "utif2": "4.1.0",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "yazl": "^3.3.1"
   }

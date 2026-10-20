@@ -1,15 +1,17 @@
 # File Attachment Preview for BookStack
 
-Adds responsive inline previews for file attachments on BookStack pages. It supports PDF, DOCX, XLSX/XLS, images, audio, and video. Unsupported file types remain accessible through open and download actions.
+Adds responsive inline previews for file attachments on BookStack pages. It supports PDF, DOCX, XLSX/XLS, common web and camera image formats, audio, and video. HEIC/HEIF images are decoded locally; TIFF files use a local fallback decoder when the browser cannot display them. Unsupported files remain accessible through open and download actions.
 
 ## Features
 
 - Responsive preview cards with keyboard-accessible collapse controls.
 - Styles follow BookStack's light and dark modes and adapt to mobile screens.
-- Local PDF, DOCX, and spreadsheet previews; no third-party CDN requests at runtime.
-- DOCX and spreadsheet bundles load only when their preview approaches the viewport.
+- Local PDF, DOCX, spreadsheet, HEIC/HEIF, and TIFF previews; no third-party CDN requests at runtime.
+- DOCX, spreadsheet, TIFF, and HEIC decoder assets load only when their preview approaches the viewport or the browser cannot display a TIFF.
 - Images, PDF files, audio, and video load on demand.
-- DOCX and spreadsheet previews stop at 25 MB; spreadsheets parse only the first sheet and show up to 100 rows and 20 columns.
+- Document, spreadsheet, HEIC/HEIF, and TIFF previews stop at 25 MB. Spreadsheet previews parse only the first sheet and show up to 100 rows and 20 columns; converted image decoding is capped at 20 megapixels.
+- Native browser image formats include PNG, JPEG, GIF/APNG, WebP, AVIF, SVG, BMP, and ICO. JPEG XL and some TIFF based camera files depend on browser/embedded preview support.
+- The HEIC decoder supports 8-bit HEVC 4:2:0 still images. Animated HEIF and less common HDR/10-bit profiles remain available through the original open/download actions.
 - File open and download actions remain available if a preview cannot be rendered.
 
 ## Install in BookStack
@@ -37,7 +39,7 @@ The classic theme view override is an advanced customization point. BookStack do
 Run the DOM and behavior tests and build locally with:
 
 ```sh
-npm ci
+npm ci --ignore-scripts
 npm test
 npm run build
 ```
@@ -65,7 +67,10 @@ GitHub Actions runs the unit tests and the same browser integration test against
 - `yazl` packages the compiled assets and module files into an installable ZIP.
 - The DOCX and XLSX bundles include a small compatibility header because recent BookStack versions MIME-sniff theme files and reject vendor code classified as `application/javascript` or binary data.
 - `docx-preview` and its JSZip dependency are bundled locally.
+- `@stacksjs/ts-heic` is bundled for local HEIC/HEIF decoding. Its pure TypeScript decoder runs in a separate local worker without `eval` or WebAssembly, so it works with BookStack's default content security policy and keeps large decodes off the UI thread. The converter is used for viewing only; the original attachment and its metadata remain unchanged.
+- `utif2` is bundled for TIFF fallback rendering. Its small bundle is loaded only when a browser cannot display a TIFF directly.
 - SheetJS Community Edition 0.20.3 is installed from its official package tarball and bundled locally.
+- `THIRD-PARTY-NOTICES.md` and the bundled decoder license texts are included in the module ZIP.
 - `jsdom`, `docx`, and Playwright support unit and browser tests.
 
 ## Source and generated files
@@ -73,7 +78,7 @@ GitHub Actions runs the unit tests and the same browser integration test against
 - `src/attachment-preview.js`: preview detection, rendering, and lazy loading.
 - `src/attachment-preview.css`: responsive preview card styles.
 - `custom-head.blade.php`: BookStack theme asset includes.
-- `scripts/build.js`: builds the core, DOCX, and XLSX bundles into `dist/public`.
+- `scripts/build.js`: builds the core and lazy-loaded DOCX, XLSX, TIFF, and HEIC assets into `dist/public`.
 - `module/`: BookStack theme module entry point and current-version head view.
 - `scripts/package-module.js`: creates `dist/file-attachment-preview.zip` for the BookStack module installer.
 - `scripts/install-assets.js`: copies the custom head template to both supported theme view paths.

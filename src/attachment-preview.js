@@ -1,9 +1,17 @@
 (() => {
-  const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg']);
+  const IMAGE_EXTENSIONS = new Set([
+    'apng', 'arw', 'avif', 'bmp', 'cr2', 'cur', 'dib', 'dng', 'gif', 'heic', 'heics', 'heif',
+    'heifs', 'hif', 'ico', 'jfif', 'jif', 'jpe', 'jpeg', 'jpg', 'jxl', 'nef', 'orf', 'pef',
+    'pjp', 'pjpeg', 'png', 'raf', 'rw2', 'srw', 'svg', 'tif', 'tiff', 'webp',
+  ]);
+  const HEIC_EXTENSIONS = new Set(['heic', 'heics', 'heif', 'heifs', 'hif']);
+  const TIFF_EXTENSIONS = new Set(['tif', 'tiff']);
+  const TIFFISH_EXTENSIONS = new Set(['arw', 'cr2', 'dng', 'nef', 'orf', 'pef', 'raf', 'rw2', 'srw']);
   const VIDEO_EXTENSIONS = new Set(['mp4', 'webm', 'mkv', 'ogg', 'avi']);
   const AUDIO_EXTENSIONS = new Set(['mp3', 'ogg', 'wav', 'flac', 'aac']);
   const SHEET_EXTENSIONS = new Set(['xlsx', 'xls']);
   const MAX_PREVIEW_BYTES = 25 * 1024 * 1024;
+  const MAX_CONVERTED_IMAGE_PIXELS = 20 * 1000 * 1000;
   const MAX_SHEET_ROWS = 100;
   const MAX_SHEET_COLUMNS = 20;
   const LOCAL_BUNDLES = new Map();
@@ -90,7 +98,6 @@
         const script = document.createElement('script');
         script.src = url;
         script.async = true;
-
         const nonceScript = document.querySelector('script[nonce]');
         if (nonceScript && nonceScript.nonce) script.nonce = nonceScript.nonce;
 
@@ -245,6 +252,80 @@
     }
   };
 
+  const setConvertedImage = (container, image, blob) => {
+    if (!(blob instanceof Blob) || blob.size === 0) throw new Error('The image decoder returned an empty result');
+
+    const objectUrl = window.URL.createObjectURL(blob);
+    image.dataset.previewingConversion = 'true';
+    image.addEventListener('load', () => window.URL.revokeObjectURL(objectUrl), {once: true});
+    image.addEventListener('error', () => window.URL.revokeObjectURL(objectUrl), {once: true});
+    image.src = objectUrl;
+    container.replaceChildren(image);
+  };
+
+  const renderRgbaImage = async (container, image, width, height, pixels) => {
+    if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 || width * height > MAX_CONVERTED_IMAGE_PIXELS) {
+      throw new Error('The image is too large for a safe preview');
+    }
+    if (!pixels || pixels.length !== width * height * 4) throw new Error('The image could not be decoded');
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('The image could not be rendered');
+    const imageData = context.createImageData(width, height);
+    imageData.data.set(pixels);
+    context.putImageData(imageData, 0, 0);
+    const png = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+    if (!png) throw new Error('The image could not be converted for display');
+    setConvertedImage(container, image, png);
+  };
+
+  const renderHeicPreview = async (url, container, image) => {
+    showMessage(container, 'HEIC-Vorschau wird geladen …', 'loading');
+    try {
+      let bundlePromise;
+      const bytes = await getAttachmentBytes(url, () => {
+        bundlePromise = loadLocalBundle('heic-preview.min.js', 'AttachmentPreviewHeic');
+      });
+      const decoder = await (bundlePromise || loadLocalBundle('heic-preview.min.js', 'AttachmentPreviewHeic'));
+      const decoded = await decoder.decode(new Uint8Array(bytes));
+      await renderRgbaImage(container, image, Number(decoded.width), Number(decoded.height), decoded.data);
+    } catch (error) {
+      showPreviewError(container, error);
+    }
+  };
+
+  const renderTiffPreview = async (url, container, image) => {
+    showMessage(container, 'TIFF-Vorschau wird geladen …', 'loading');
+    try {
+      let bundlePromise;
+      const bytes = await getAttachmentBytes(url, () => {
+        bundlePromise = loadLocalBundle('tiff-preview.min.js', 'AttachmentPreviewTIFF');
+      });
+      const decoder = await (bundlePromise || loadLocalBundle('tiff-preview.min.js', 'AttachmentPreviewTIFF'));
+      const imageDirectories = decoder.decode(bytes);
+      const imageDirectory = imageDirectories && imageDirectories[0];
+      if (!imageDirectory) throw new Error('The TIFF file contains no image');
+
+      const tagNumber = (value) => Number(Array.isArray(value) || ArrayBuffer.isView(value) ? value[0] : value);
+      const declaredWidth = tagNumber(imageDirectory.width || imageDirectory.t256);
+      const declaredHeight = tagNumber(imageDirectory.height || imageDirectory.t257);
+      if (!declaredWidth || !declaredHeight || declaredWidth * declaredHeight > MAX_CONVERTED_IMAGE_PIXELS) {
+        throw new Error('The TIFF image is too large for a safe preview');
+      }
+
+      decoder.decodeImage(bytes, imageDirectory);
+      const pixels = decoder.toRGBA8(imageDirectory);
+      const width = Number(imageDirectory.width);
+      const height = Number(imageDirectory.height);
+      await renderRgbaImage(container, image, width, height, pixels);
+    } catch (error) {
+      showPreviewError(container, error);
+    }
+  };
+
   const observeWhenVisible = (element, callback) => {
     let started = false;
     let observer = null;
@@ -306,8 +387,31 @@
       image.alt = name;
       image.loading = 'lazy';
       image.decoding = 'async';
-      image.addEventListener('error', () => showMessage(body, 'Das Bild konnte nicht geladen werden. Bitte öffne oder lade die Datei herunter.'));
+      image.addEventListener('error', () => {
+        if (image.dataset.previewingConversion === 'true') {
+          showMessage(body, 'Das Bild konnte nicht geladen werden. Bitte öffne oder lade die Datei herunter.');
+        } else if (HEIC_EXTENSIONS.has(ext) && image.dataset.heicFallbackAttempted !== 'true') {
+          image.dataset.heicFallbackAttempted = 'true';
+          renderHeicPreview(url, body, image);
+        } else if ((TIFF_EXTENSIONS.has(ext) || TIFFISH_EXTENSIONS.has(ext)) && image.dataset.tiffFallbackAttempted !== 'true') {
+          image.dataset.tiffFallbackAttempted = 'true';
+          renderTiffPreview(url, body, image);
+        } else {
+          showMessage(body, 'Das Bild konnte nicht geladen werden. Bitte öffne oder lade die Datei herunter.');
+        }
+      });
       body.appendChild(image);
+
+      if (HEIC_EXTENSIONS.has(ext)) {
+        return {
+          body,
+          lazy: true,
+          load: () => {
+            placeholder.remove();
+            image.src = url;
+          },
+        };
+      }
 
       return {
         body,

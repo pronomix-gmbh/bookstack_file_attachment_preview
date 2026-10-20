@@ -43,6 +43,33 @@ const builds = [
     target: ['es2018'],
     banner: {js: bookStackMimeGuard},
   },
+  {
+    entryPoints: [path.join(__dirname, 'tiff-preview-entry.js')],
+    outfile: path.join(distPublic, 'tiff-preview.min.js'),
+    bundle: true,
+    minify: true,
+    format: 'iife',
+    target: ['es2018'],
+    banner: {js: bookStackMimeGuard},
+  },
+  {
+    entryPoints: [path.join(__dirname, 'heic-preview-entry.js')],
+    outfile: path.join(distPublic, 'heic-preview.min.js'),
+    bundle: true,
+    minify: true,
+    format: 'iife',
+    target: ['es2018'],
+    banner: {js: bookStackMimeGuard},
+  },
+  {
+    entryPoints: [path.join(__dirname, 'heic-preview-worker.js')],
+    outfile: path.join(distPublic, 'heic-preview-worker.min.js'),
+    bundle: true,
+    minify: true,
+    format: 'iife',
+    target: ['es2018'],
+    banner: {js: bookStackMimeGuard},
+  },
 ];
 
 Promise.all(builds.map((options) => esbuild.build(options))).catch((err) => {
